@@ -105,3 +105,5 @@ work/
 *.temp
 *.xlk
 *.~vsd*
+
+*.code-workspace
