@@ -1,18 +1,22 @@
-# Project/Repo Title
+# PlantUML GitHub Action
 
-Template Repository for the Boutros Lab general project repos. Describe a simple overview of use/purpose here.
+This repository is a GitHub Action that generates UML diagrams (as SVGs) from PlantUML files.
 
 ## Description
 
-An in-depth paragraph about your project and overview of use.
+When this action is triggered on a branch, it will scan git commits to find the last commit since a push or all commits in a branch, depending on how the Action is triggered. It will look for additions, deletions, and modifications to files ending with the `.puml` extension. Three operations occur following this lookup:
+
+* Deleted `.puml` files remove orphaned `.svg` UML diagrams. This works by matching the `.puml` filename to the `.svg` filename. If the UML diagram was generated with a name using `@startuml` (or any of the other `@start` directives) that does not match the filename, orphaned files will not be found, and thus not removed.
+* Added and modified `.puml` files are fed into `plantuml` to generate SVGs
+* The added and removed `.svg` files are committed and pushed to the same branch the Action is running for. The commit authors are both the user that triggered the Action and "github-actions[bot]"
 
 ## License
 
-Author: Name1(username1@mednet.ucla.edu), Name2(username2@mednet.ucla.edu)
+Author: Aaron Holmes (aholmes@mednet.ucla.edu)
 
-[This project] is licensed under the GNU General Public License version 2. See the file LICENSE.md for the terms of the GNU GPL license.
+tool-PlantUML-action is licensed under the GNU General Public License version 2. See the file LICENSE.md for the terms of the GNU GPL license.
 
-<one line to give the project/program's name and a brief idea of what it does.>
+Generate UML diagrams from PlantUML files.
 
 Copyright (C) 2021 University of California Los Angeles ("Boutros Lab") All rights reserved.
 
