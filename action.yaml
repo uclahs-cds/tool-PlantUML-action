@@ -1,0 +1,302 @@
+name: "PlantUML"
+description: "Generate PlantUML diagrams as SVGs"
+inputs:
+  github-token:
+    description: "A GitHub PAT used to commit and push generated SVGs back into the repository."
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.PUML_PUSH_TOKEN }}
+        fetch-depth: 0
+
+    # How this works
+    # This action attempts to find all PlantUML files that changed or were removed since the last
+    # commit in a branch. The workflow can be triggered from either a push, or manually (or through other means).
+    # If the workflow is triggered by a push, the commits searched are limited to the last commit that was pushed.
+    # If the workflow is triggered through other means, then the range of commits include from when the branch
+    # was first created, up until HEAD.
+    #
+    # Once the commit range is discovered, the workflow uses `git diff-tree`, `sed`, and `awk` to parse
+    # the filenames and how they were altered in the commits. The workflow avoids parsing filenames
+    # directly _as much as possible_. As such, the use of null bytes in diff-tree and sed allow
+    # the workflow to isolate what parts of the output are files (and how they changed) without running
+    # into issues with, e.g., spaces, newlines, special characters, or any other unexpected data in
+    # the file names.
+    #
+    # To further reduce the need to directly work with the file names, this workflow makes use of
+    # an ad hoc data format that is generated with the use of `awk`. This is done to avoid working
+    # with potentially unsafe data in `bash`.
+    #
+    # Key terms and symbols:
+    #  Header - sections of the data format that specify lengths and positions of file names
+    #  Position - the byte count at which a particular piece of data starts
+    #  Length - the length of the data that starts at the aforementioned position
+    #  Orphaned - SVG files that should be removed when a PUML file is moved or deleted
+    #  Modified - PUML files with changes other than deletion (Added, Modified)
+    #  > - separates individual parts of the header
+    #  : - separates positional and length information
+    #
+    # The data format is as follows:
+    #  A header indicating the length of the combined header and file names for each of the orphaned and modified files.
+    #  For each of the orphaned and modified files:
+    #    A header indicating the length of the header for the [orphaned or modified] file names.
+    #    A header indicating the position and lengths of each file name for the [orphaned or modified] files.
+    #    The file names.
+    #  File names are specified in the order of orphaned files first, then modified.
+    #
+    # In the code below you will find shorter examples, but we will document a full example here.
+    # Take this output (the value of $changed_files returns from `awk`)
+    # 169:538>16>0:44>44:52>96:54docs/models/technician_domain/code/assay.svgdocs/models/technician_domain/code/control_plate.svgdocs/models/technician_domain/code/treatment_plate.svg59>0:51>51:56>107:64>171:48>219:50>269:54>323:45>368:56>424:52docs/models/technician_domain/code/assay_plate.pumldocs/models/technician_domain/code/assay_plate_well.pumldocs/models/technician_domain/code/assay_plate_well_mapping.pumldocs/models/technician_domain/code/compound.pumldocs/models/technician_domain/code/individual.pumldocs/models/technician_domain/code/plate_grouping.pumldocs/models/technician_domain/code/staff.pumldocs/models/technician_domain/code/well_measurement.pumldocs/models/technician_domain/technician_domain.puml
+    #
+    # Breaking this into new lines to go over each part, we end up with:
+    # 169:538>
+    # 16>
+    # 0:44>44:52>96:54
+    # docs/models/technician_domain/code/assay.svgdocs/models/technician_domain/code/control_plate.svgdocs/models/technician_domain/code/treatment_plate.svg
+    # 59>
+    # 0:51>51:56>107:64>171:48>219:50>269:54>323:45>368:56>424:52
+    # docs/models/technician_domain/code/assay_plate.pumldocs/models/technician_domain/code/assay_plate_well.pumldocs/models/technician_domain/code/assay_plate_well_mapping.pumldocs/models/technician_domain/code/compound.pumldocs/models/technician_domain/code/individual.pumldocs/models/technician_domain/code/plate_grouping.pumldocs/models/technician_domain/code/staff.pumldocs/models/technician_domain/code/well_measurement.pumldocs/models/technician_domain/technician_domain.puml
+    #
+    #
+    # This part of the header indicates the combined length of the headers and filenames.
+    # The combined lengths and the remainder of the data are separated by `>`.
+    # A `:` separated the lengths for the orphaned and modified headers and file names.
+    # 169:538>
+    # For example, the combined length of this string (the orphaned file names) is 169 bytes:
+    #   16>0:44>44:52>96:54docs/models/technician_domain/code/assay.svgdocs/models/technician_domain/code/control_plate.svgdocs/models/technician_domain/code/treatment_plate.svg
+    # The number 538 is the length for the modified files.
+    #
+    # Following this is the header containing both the length of the header and the lengths and positions of individual file names.
+    # The header length and the header are separated by `>`.
+    # 16>
+    # For example, the length of the header for the orphaned file names is 16 bytes:
+    #   0:44>44:52>96:54
+    #
+    # This header then consists of the starting position and the length of each [orphaned] file name.
+    # Each file name position is separated by `>`.
+    # The starting byte and length are separated by `:`.
+    # For example, 0:44 indicates that a file name exists from bytes 0 to 44 (docs/models/technician_domain/code/assay.svg)
+    #              44:52 indicates that a file name exists _start at_ position 44, with a length of 52 bytes (docs/models/technician_domain/code/control_plate.svg)
+    #
+    # This data format is then followed again to process the modified files.
+    #
+    # Individual file names are shell-escaped using bash's built-in `printf %q` format specifier.
+    #
+    # Once all data has been consumed, the individual file names are output for `$GITHUB_OUTPUT` for use in subsequent jobs.
+    #
+    - name: Get changed PUML files
+      id: changed-plantuml-files
+      shell: bash
+      run: |
+        set -o pipefail
+        echo Searching branch for new PUML files ...
+        if [[ "${{ github.event.before }}" == "" || "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+          echo Workflow was triggered from a non-push event.
+          echo Detected PUML files will contain all PUML files in the branch that differ from the parent branch.
+
+          # If the exit code of the pipeline is 141, that means awk exited
+          # before git did. This is expected, as awk explicitly exits on the
+          # first match we want to print. The last part of this command traps
+          # that exit code and ignores it, while letting other exit codes
+          # fail the shell command.
+          PARENT_BRANCH_SHA=`git --no-pager log --decorate | awk '$1 ~ /^commit/ && $2 ~ /[a-z0-9]+/ && $3 ~ /\(origin/{printf $2;exit}' || (exit_code=$?; [ $exit_code -eq 141 ] && : || exit $exit_code)`
+          COMMITISH="$PARENT_BRANCH_SHA..HEAD"
+        else
+          echo Workflow was triggered by a push event.
+          echo Detected PUML files will contain only PUML files committed since the previous push.
+          COMMITISH="${{ github.event.before }}..${{ github.sha }}"
+        fi
+
+        echo Detected range of relevant commits are $COMMITISH
+
+        changed_files=$(git diff-tree -z -r --no-commit-id --name-status $COMMITISH \*.puml `# get all changed PUML files and output w/ binary separators` \
+        | sed -z 's/\n/\\n/g;s/ /\\ /g;s/\.puml$/.puml\n/' `# replace all newlines in filenames with literals; replace all spaces in filenames with literals; replace the end of each changed file with a newline` \
+        | sed 's/^\x0//g' `# remove all null characters at the start of each filename` \
+        | awk -F'\0' ' # use null characters between modification type and filenames as the field separator
+          function join(arr) {
+            header = header_sep = ""
+            next_str_start = 0
+            joined = ""
+            for ( i=0; i in arr; i++ )
+            {
+              header = header header_sep next_str_start ":" length(arr[i])
+              next_str_start = next_str_start + length(arr[i])
+              joined = joined arr[i]
+              header_sep = ">"
+            }
+            return length(header) ">" header joined
+          }
+          BEGIN {
+            # a technique to create a new array in awk
+            delete orphaned_files[0]
+            delete modified_files[0]
+          }
+          {
+            change_type = $1 # Git change type - A, D, M, etc.
+            $1 = "" # remove the change type from the line because all subsequent operations only need the filename
+            sub(/^[ ]/, "", $0) # remove extra space Git adds to filenames from diff-tree
+            gsub(/[ ]/, "\\\\ ", $0) # replace all spaces in filenames w/ literal escape sequences. the final string is "\\ "
+            # Remove SVG files associated with removed PUML files
+            if ( change_type ~ /^D$/ && $0 ~ /\.puml$/ )
+            {
+              sub(/\.puml/, ".svg", $0)
+              orphaned_files[length(orphaned_files)] = $0
+            }
+            # Process new SVGs for added/modified PUML files
+            else if ( change_type !~ /^D$/ && $0 ~ /\.puml"?$/ ) # filenames may end with a " if diff-tree quoted them
+            {
+              modified_files[length(modified_files)] = $0
+            }
+          }
+          END {
+            if ( length(orphaned_files) > 0 )
+              orphaned_files_string=join(orphaned_files)
+
+            if ( length(modified_files) > 0 )
+              modified_files_string=join(modified_files)
+
+            # output filenames and length of each string for future parsing.
+            # looks like:
+            # 12:25>3>0:7foo.svg7>0:8>8:8bar.pumlbaz.puml
+            printf "%d:%d>%s%s", length(orphaned_files_string), length(modified_files_string), orphaned_files_string, modified_files_string
+          }')
+
+          get_filenames()
+          {
+            # The first argument is a format containing:
+            #    the length of a header
+            #    a header containing the positions and lengths of each filename
+            #    the filenames
+            # Looks like:
+            # 16>0:44>44:52>96:54docs/models/technician_domain/code/assay.svgdocs/models/technician_domain/code/control_plate.svgdocs/models/technician_domain/code/treatment_plate.svg
+            local shell_unsafe_filenames=$1
+
+            # The name of the envvar to set, e.g., "modified_files"
+            local github_envvar_name=$2
+
+            # The length of the header precedes the header length demarcation
+            # Following the example above, this is "16"
+            local header_length=${shell_unsafe_filenames%%">"*}
+
+            # This is the number (and a colon) that specifies the
+            # length of the header minus this demarcation (the number and a colon).
+            # +1 at the end to account for the colon after the number.
+            # Example: this is "3" - the length of "16>"
+            local header_demarcation_length=$(( ${#header_length} + 1 ))
+
+            # The rest of the header following the header length demarcation.
+            # Example> 0:44>44:52>96:54
+            local header=${shell_unsafe_filenames:$header_demarcation_length:$header_length}
+
+            # Store each demarcated file position in an array, separated by a colon.
+            # Example: Each of "0:44" "44:52" and "96:54" are array items (minus quotes)
+            local filename_lengths=(${header//>/ })
+
+            # The space-separated filenames that the envvar will be set to
+            local filenames=""
+            local sep=""
+
+            # file_demarcation is set to the items in filename_lengths, e.g. "0:44"
+            for file_demarcation in "${filename_lengths[@]}"; do
+              # An array whose items are the numbers separated by ":"
+              # Example: 0 and 44
+              # The first number indicates the starting position in the string where the filename is.
+              # The second number indicates the number of characters to read following the start position.
+              local filename_locations=(${file_demarcation//:/ })
+              local filename_start_pos=${filename_locations[0]}
+              local filename_length=$(( ${filename_locations[1]} ))
+
+              # printf %q will safely escape the filename string for outputting into $GITHUB_OUTPUT, which Actions sources later
+              local shell_unsafe_filename=${shell_unsafe_filenames:$(( $header_length + $header_demarcation_length + $filename_start_pos )):$filename_length}
+              local shell_safe_filename=`printf %q "$shell_unsafe_filename"`
+
+              filenames="${filenames}${sep}${shell_safe_filename}"
+              sep=" "
+            done
+
+            echo "$github_envvar_name=$filenames" >> $GITHUB_OUTPUT
+          }
+
+          # The output from awk contains a header denoting the positions of
+          # where the orphaned and modified files are within the string.
+          # This is the first numbers in the string, e.g., "169:538"
+          part_lengths=${changed_files%%">"*}
+
+          # Store the number in an array
+          part_lengths=(${part_lengths//:/ })
+
+          # This turns the string, e.g., `"169"` into the number `169`
+          orphaned_files_length=$(( ${part_lengths[0]} )) # the first number, e.g., 169
+          modified_files_length=$(( ${part_lengths[1]} )) # the second number, e.g., 538
+
+          # $changed_files contains the output from awk following the length numbers,
+          # e.g., 169:538>16>0:44>44:52>96:54docs/models/technician_domain/code/assay.svgdocs/models/technician_domain/code/control_plate.svgdocs/models/technician_domain/code/treatment_plate.svg
+          # ${#orphaned_files_length} gives the length of the string value, e.g., "169" is "3".
+          # Add 2 to account for the colon and newline.
+          # This operation removes the "169:538>" portion from the output.
+          changed_files=${changed_files:$(( ${#orphaned_files_length} + ${#modified_files_length} + 2 ))}
+
+          if [ $orphaned_files_length -gt 0 ]; then
+            shell_unsafe_orphaned_files="${changed_files:0:$orphaned_files_length}"
+            get_filenames $shell_unsafe_orphaned_files "orphaned_files"
+          fi
+
+          if [ $modified_files_length -gt 0 ]; then
+            shell_unsafe_modified_files="${changed_files:$orphaned_files_length:$modified_files_length}"
+            get_filenames $shell_unsafe_modified_files "modified_files"
+          fi
+
+    - name: Removed PUML files detected
+      id: detected-removed-files
+      shell: bash
+      if: success()
+      run: |
+        set -o pipefail
+        orphaned_files='${{ steps.changed-plantuml-files.outputs.orphaned_files}}'
+        if [[ $orphaned_files == "" ]]; then
+          echo No removed PUML files detected.
+        else
+          echo $orphaned_files
+        fi
+
+    - name: Added or modifed PUML files detected
+      id: detected-changed-files
+      shell: bash
+      if: success()
+      run: |
+        set -o pipefail
+        modified_files='${{ steps.changed-plantuml-files.outputs.modified_files }}'
+        if [[ $modified_files == "" ]]; then
+          echo No PUML file changes detected.
+        else
+          echo $modified_files
+        fi
+
+    - name: Remove Orphaned SVG Diagrams
+      id: remove-orphaned-files
+      shell: bash
+      if: success() && steps.changed-plantuml-files.outputs.orphaned_files != ''
+      run: |
+        set -o pipefail
+        rm ${{ steps.changed-plantuml-files.outputs.orphaned_files }}
+
+    - name: Generate SVG Diagrams
+      id: generate-svg-diagrams
+      if: success() && steps.changed-plantuml-files.outputs.modified_files != ''
+      uses: sstopkin/plantuml-github-action@a7634b1e85077a83f1375808a2347b5e6b09d6a3
+      with:
+          args: -DPLANTUML_LIMIT_SIZE=8192 -v -tsvg ${{ steps.changed-plantuml-files.outputs.modified_files }}
+
+    - name: Push Local Changes
+      id: push-changes
+      if: |
+        success() && (
+           steps.changed-plantuml-files.outputs.modified_files != ''
+        || steps.changed-plantuml-files.outputs.orphaned_files != '')
+      uses:  stefanzweifel/git-auto-commit-action@v4.15.3
+      with:
+        commit_message: "Update SVG images for PlantUML diagrams"
+        branch: ${{ github.head_ref }}
