@@ -2,6 +2,41 @@
 
 This repository is a GitHub Action that generates UML diagrams (as SVGs) from PlantUML files.
 
+## How to use this action in your repository
+
+This example GitHub Action will cause SVG diagrams to be generated from PUML files when they are committed and pushed the the repository.
+
+```yaml
+---
+name: PlantUML Generation
+
+on:
+  push:
+    paths:
+      - '**.puml'
+  workflow_dispatch:
+
+jobs:
+  plantuml:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate PUML diagrams
+        uses: uclahs-cds/tool-PlantUML-action@v1.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ghcr-username: ${{ github.actor }}
+          ghcr-password: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Variables
+
+| | |
+|-|-|
+| `github-token` | A PAT used to commit and push generated and removed SVGs back into the repository. |
+| `ghcr-username` | The username used to authenticate with ghcr.io to pull the PlantUML docker image. |
+| `ghcr-password` | The password used with `ghcr-username`. |
+
 ## Description
 
 When this action is triggered on a branch, it will scan git commits to find the last commit since a push or all commits in a branch, depending on how the Action is triggered. It will look for additions, deletions, and modifications to files ending with the `.puml` extension. Three operations occur following this lookup:
