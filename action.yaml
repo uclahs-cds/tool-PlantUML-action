@@ -4,6 +4,12 @@ inputs:
   github-token:
     description: "A GitHub PAT used to commit and push generated SVGs back into the repository."
     required: true
+  ghcr-username:
+    description: "The username to use to login to ghcr.io."
+    required: true
+  ghcr-password:
+    description: "The password to use to login to ghcr.io."
+    required: true
 runs:
   using: "composite"
   steps:
@@ -12,8 +18,8 @@ runs:
       uses: docker/login-action@v2
       with:
         registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        username: ${{ inputs.ghcr-username }}
+        password: ${{ inputs.ghcr-password }}
 
     - uses: actions/checkout@v3
       with:
