@@ -1,11 +1,16 @@
 #!/bin/bash
 set -o pipefail
 
+GITHUB_EVENT_BEFORE=$1
+GITHUB_SHA=$2
+
 # create file descriptor 9 to shortcut redirection to STDERR
 exec 9>&2
 
 echo Searching branch for new PUML files ... >&9
-if [[ "${{ github.event.before }}" == "" || "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+echo Previous commit SHA: "'$GITHUB_EVENT_BEFORE'" >&9
+echo Current SHA: "'$GITHUB_SHA'" >&9
+if [[ "$GITHUB_EVENT_BEFORE" == "" || "$GITHUB_EVENT_BEFORE" == "0000000000000000000000000000000000000000" ]]; then
   echo Workflow was triggered from a non-push event. >&9
   echo Detected PUML files will contain all PUML files in the branch that differ from the parent branch. >&9
 
@@ -19,10 +24,11 @@ if [[ "${{ github.event.before }}" == "" || "${{ github.event.before }}" == "000
 else
   echo Workflow was triggered by a push event. >&9
   echo Detected PUML files will contain only PUML files committed since the previous push. >&9
-  COMMITISH="${{ github.event.before }}..${{ github.sha }}"
+  COMMITISH="$GITHUB_EVENT_BEFORE..$GITHUB_SHA"
 fi
 
-COMMITISH=0dc2e225ea889cb40deac752d20099cc5400d252..HEAD
+# TODO remove this - for testing
+#COMMITISH=0dc2e225ea889cb40deac752d20099cc5400d252..HEAD
 echo Detected range of relevant commits are $COMMITISH >&9
 # this is an output of the action step
 echo -n $COMMITISH

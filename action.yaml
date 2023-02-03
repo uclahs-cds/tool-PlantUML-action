@@ -15,7 +15,7 @@ runs:
     - name: Get commit range
       id: commit-range
       shell: bash
-      run: echo "COMMITISH=$(${{ github.action_path }}/scripts/get-commitish.sh)" >> $GITHUB_OUTPUT
+      run: echo "COMMITISH=$(${{ github.action_path }}/scripts/get-commitish.sh '${{ github.event.before }}' '${{ github.sha }}')" >> $GITHUB_OUTPUT
 
     - name: Get parsable changed file names
       id: parsable-files
