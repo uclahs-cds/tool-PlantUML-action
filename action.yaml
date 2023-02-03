@@ -80,7 +80,7 @@ runs:
     - name: Generate SVG Diagrams
       id: generate-svg-diagrams
       if: success() && steps.changed-plantuml-files.outputs.modified_files != ''
-      uses: sstopkin/plantuml-github-action@a7634b1e85077a83f1375808a2347b5e6b09d6a3
+      uses: docker://ghcr.io/uclahs-cds/plantuml-github-action:v2.0.0
       with:
           args: -DPLANTUML_LIMIT_SIZE=8192 -v -tsvg ${{ steps.changed-plantuml-files.outputs.modified_files }}
 
