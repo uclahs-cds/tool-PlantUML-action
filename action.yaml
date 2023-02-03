@@ -15,7 +15,9 @@ runs:
     - name: Get commit range
       id: commit-range
       shell: bash
-      run: echo "COMMITISH=$(${{ github.action_path }}/scripts/get-commitish.sh '${{ github.event.before }}' '${{ github.sha }}')" >> $GITHUB_OUTPUT
+      run: |
+        echo Finding relevant commit range for changed PUML files ...
+        echo "COMMITISH=$(${{ github.action_path }}/scripts/get-commitish.sh '${{ github.event.before }}' '${{ github.sha }}')" >> $GITHUB_OUTPUT
 
     - name: Get parsable changed file names
       id: parsable-files
@@ -23,6 +25,7 @@ runs:
       env:
         COMMITISH: ${{ steps.commit-range.outputs.COMMITISH }}
       run: |
+        echo Parsing changed PUML file names ...
         CHANGED_FILES=$( \
           ${{ github.action_path }}/scripts/get-changed-files.sh \
         | ${{ github.action_path }}/scripts/get-shell-parsable-files.awk)
@@ -33,13 +36,16 @@ runs:
       shell: bash
       env:
         CHANGED_FILES: ${{ steps.parsable-files.outputs.CHANGED_FILES }}
-      run: echo $(${{ github.action_path }}/scripts/get-shell-safe-files.sh) >> $GITHUB_OUTPUT
+      run: |
+        echo Sanitizing changed PUML file names for shell safety ...
+        echo $(${{ github.action_path }}/scripts/get-shell-safe-files.sh) >> $GITHUB_OUTPUT
 
     - name: Removed PUML files detected
       id: detected-removed-files
       shell: bash
       if: success()
       run: |
+        echo Checking for removed PUML files ...
         set -o pipefail
         orphaned_files='${{ steps.changed-plantuml-files.outputs.orphaned_files}}'
         if [[ $orphaned_files == "" ]]; then
@@ -53,6 +59,7 @@ runs:
       shell: bash
       if: success()
       run: |
+        echo Checking for modified PUML files ...
         set -o pipefail
         modified_files='${{ steps.changed-plantuml-files.outputs.modified_files }}'
         if [[ $modified_files == "" ]]; then
@@ -66,6 +73,7 @@ runs:
       shell: bash
       if: success() && steps.changed-plantuml-files.outputs.orphaned_files != ''
       run: |
+        echo Removing orphaned SVG files ...
         set -o pipefail
         rm ${{ steps.changed-plantuml-files.outputs.orphaned_files }}
 
