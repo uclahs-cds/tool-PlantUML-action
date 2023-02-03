@@ -96,7 +96,7 @@ runs:
       if: success() && steps.changed-plantuml-files.outputs.modified_files != ''
       uses: docker://ghcr.io/uclahs-cds/plantuml-github-action:v2.0.0
       with:
-          args: -DPLANTUML_LIMIT_SIZE=8192 -v -tsvg ${{ steps.changed-plantuml-files.outputs.modified_files }}
+        args: -DPLANTUML_LIMIT_SIZE=8192 -v -tsvg ${{ steps.changed-plantuml-files.outputs.modified_files }}
 
     - name: Push Local Changes
       id: push-changes
