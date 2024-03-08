@@ -30,7 +30,7 @@ else
   echo Detected PUML files will contain only PUML files committed since the previous push. >&9
 
   # It's possible this event was triggered by a rebase
-  # followed by a push, in which case the "before"  SHA
+  # followed by a push, in which case the "before" SHA
   # is invalid. This selects the new "parent" SHA.
   if ! git branch "$GITHUB_SHA" --contains "$GITHUB_EVENT_BEFORE" > /dev/null 2>&1; then
     echo Detected invalid previous commit SHA. Determining new parent SHA ... >&9
