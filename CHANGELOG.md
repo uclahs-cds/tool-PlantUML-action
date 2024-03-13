@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
+## [Unreleased]
+### Fixed
+- Fixed issue with invalid file modification list #1
+
 ## [1.0.1] - 2024-03-13
 ### Fixed
 - Resolved failure involving rebases when Action is triggered #3
@@ -15,5 +19,3 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - PlantUML SVG generation action
 ### Changed
 - Updated meta information (readme, license, etc.)
-
-## [Unreleased]
