@@ -52,7 +52,10 @@ runs:
         CHANGED_FILES: ${{ steps.parsable-files.outputs.CHANGED_FILES }}
       run: |
         echo Sanitizing changed PUML file names for shell safety ...
-        echo $(${{ github.action_path }}/scripts/get-shell-safe-files.sh) >> $GITHUB_OUTPUT
+        IFS=$'\n'
+        for output in $(${{ github.action_path }}/scripts/get-shell-safe-files.sh); do
+          echo "$output" >> $GITHUB_OUTPUT
+        done
 
     - name: Removed PUML files detected
       id: detected-removed-files
