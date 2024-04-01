@@ -1,3 +1,4 @@
+---
 name: "PlantUML"
 description: "Generate PlantUML diagrams as SVGs"
 inputs:
@@ -15,107 +16,81 @@ runs:
   steps:
     # https://github.com/docker/login-action/blob/7f58925/README.md#github-container-registry
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ inputs.ghcr-username }}
         password: ${{ inputs.ghcr-password }}
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         token: ${{ inputs.github-token }}
         fetch-depth: 0
 
-    - name: Get commit range
-      id: commit-range
-      shell: bash
+    - id: update-files
+      name: Perform updates
+      shell: python
       run: |
-        echo Finding relevant commit range for changed PUML files ...
-        echo "COMMITISH=$(${{ github.action_path }}/scripts/get-commitish.sh '${{ github.event.before }}' '${{ github.sha }}')" >> $GITHUB_OUTPUT
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
 
-    - name: Get parsable changed file names
-      id: parsable-files
-      shell: bash
-      env:
-        COMMITISH: ${{ steps.commit-range.outputs.COMMITISH }}
-      run: |
-        echo Parsing changed PUML file names ...
-        CHANGED_FILES=$( \
-          ${{ github.action_path }}/scripts/get-changed-files.sh \
-        | ${{ github.action_path }}/scripts/get-shell-parsable-files.awk)
-        echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_OUTPUT
+        github_context = json.loads("${{ toJSON(github) }}")
+        workspace = Path(github_context["workspace"])
 
-    - name: Get safe file names
-      id: changed-plantuml-files
-      shell: bash
-      env:
-        CHANGED_FILES: ${{ steps.parsable-files.outputs.CHANGED_FILES }}
-      run: |
-        echo Sanitizing changed PUML file names for shell safety ...
-        IFS=$'\n'
-        for output in $(${{ github.action_path }}/scripts/get-shell-safe-files.sh); do
-          echo "$output" >> $GITHUB_OUTPUT
-        done
+        changed_files = {}
 
-    - name: Removed PUML files detected
-      id: detected-removed-files
-      shell: bash
-      if: success()
-      run: |
-        echo Checking for removed PUML files ...
-        set -o pipefail
-        orphaned_files='${{ steps.changed-plantuml-files.outputs.orphaned_files}}'
-        if [[ $orphaned_files == "" ]]; then
-          echo No removed PUML files detected.
-        else
-          echo $orphaned_files
-        fi
+        for commit in github_context["event"]["commits"]:
+            for name in ("added", "modified", "removed"):
+                for filepath in commit[name]:
+                    changed_files[Path(filepath)] = name != "removed"
 
-    - name: Added or modifed PUML files detected
-      id: detected-changed-files
-      shell: bash
-      if: success()
-      run: |
-        echo Checking for modified PUML files ...
-        set -o pipefail
-        modified_files='${{ steps.changed-plantuml-files.outputs.modified_files }}'
-        if [[ $modified_files == "" ]]; then
-          echo No PUML file changes detected.
-        else
-          echo $modified_files
-        fi
+        # "True" values are added or changed files
+        # "False" values have been removed
+        changes_made = False
 
-    - name: Remove Orphaned SVG Diagrams
-      id: remove-orphaned-files
-      shell: bash
-      if: success() && steps.changed-plantuml-files.outputs.orphaned_files != ''
-      run: |
-        echo Removing orphaned SVG files ...
-        set -o pipefail
-        rm ${{ steps.changed-plantuml-files.outputs.orphaned_files }}
+        for path, keep_svg in changed_files.items():
+            svg_path = path.with_suffix(".svg")
+            if not keep_svg:
+                # Remove the corresponding SVG file (if found)
+                try:
+                    svg_path.unlink()
+                    changes_made = True
+                except FileNotFoundError:
+                    pass
 
-    - name: Generate SVG Diagrams
-      id: generate-svg-diagrams
-      shell: bash
-      if: success() && steps.changed-plantuml-files.outputs.modified_files != ''
-      # Using the docker image directly causes GitHub to try
-      # to pull the image before docker/login-action runs.
-      # Because this is a private image, the step would fails when this happens.
-      run: |
-        echo Generate SVG diagrams
-        docker run \
-        -v ${{ github.workspace }}:/data \
-        ghcr.io/uclahs-cds/plantuml-github-action:v2.0.0 \
-        -DPLANTUML_LIMIT_SIZE=8192 \
-        -v \
-        -tsvg ${{ steps.changed-plantuml-files.outputs.modified_files }}
+                continue
+
+            # This path _should_ already be relative to the workspace, but just
+            # make sure
+            mount_dir = Path("/data")
+            mount_path = Path(
+                mount_dir,
+                path.resolve().relative_to(workspace)
+            )
+
+            changes_made = True
+
+            # Run the docker image to update the SVG
+            with svg_path.open(mode="wb") as outfile:
+                subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "-i",
+                        "-v", f"{workspace}:{mount_dir}",
+                        "ghcr.io/uclahs-cds/plantuml-github-action:v2.0.0",
+                        "-DPLANTUML_LIMIT_SIZE=8192",
+                        "-tsvg",
+                        mount_path
+                    ],
+                    stdout=outfile,
+                    check=True
+                )
 
     - name: Push Local Changes
       id: push-changes
-      if: |
-        success() && (
-           steps.changed-plantuml-files.outputs.modified_files != ''
-        || steps.changed-plantuml-files.outputs.orphaned_files != '')
       uses: stefanzweifel/git-auto-commit-action@v5.0.0
       with:
         commit_message: "Update SVG images for PlantUML diagrams"
