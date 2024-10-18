@@ -116,7 +116,7 @@ runs:
         success() && (
            steps.changed-plantuml-files.outputs.modified_files != ''
         || steps.changed-plantuml-files.outputs.orphaned_files != '')
-      uses: stefanzweifel/git-auto-commit-action@v5.0.0
+      uses: stefanzweifel/git-auto-commit-action@v5.0.1
       with:
         commit_message: "Update SVG images for PlantUML diagrams"
         branch: ${{ github.head_ref }}
