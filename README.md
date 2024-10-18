@@ -1,5 +1,7 @@
 # PlantUML GitHub Action
 
+[![GitHub release](https://img.shields.io/github/v/release/uclahs-cds/tool-PlantUML-action)](https://github.com/uclahs-cds/tool-PlantUML-action/actions/workflows/prepare-release.yaml)
+
 This repository is a GitHub Action that generates UML diagrams (as SVGs) from PlantUML files.
 
 ## How to use this action in your repository
