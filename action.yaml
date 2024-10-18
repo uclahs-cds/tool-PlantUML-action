@@ -15,7 +15,7 @@ runs:
   steps:
     # https://github.com/docker/login-action/blob/7f58925/README.md#github-container-registry
     - name: Login to GitHub Container Registry
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ inputs.ghcr-username }}
