@@ -21,7 +21,7 @@ runs:
         username: ${{ inputs.ghcr-username }}
         password: ${{ inputs.ghcr-password }}
 
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         token: ${{ inputs.github-token }}
         fetch-depth: 0
